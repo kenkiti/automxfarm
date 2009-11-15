@@ -1,0 +1,20 @@
+* Dependencies
+- Ruby (1.8.6 or higher)
+- RubyGems
+- Ruby mechanize (0.9.3 or higher)
+  http://mechanize.rubyforge.org/mechanize/
+- Ruby JSON
+  http://flori.github.com/json/
+
+* License
+This program is distributed under the GPL. Please see the COPYING file.
+
+* Examples
+Treat mixi friends and myself.
+ $ ruby mxfarm.rb -e foo@example.com -p barbaz
+
+Treat the paticular(s).
+ $ ruby mxfarm.rb -e foo@example.com -p barbaz -i 1,2,3
+
+Treat the member(s) of community.
+ $ ruby mxfarm.rb -e foo@example.com -p barbaz -c 4
