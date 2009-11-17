@@ -605,7 +605,7 @@ def main
       while queue.size > 10000
         sleep 1
       end
-      puts "[get_members] page_id: %d, queue_size: %d" % [page_id, queue.size]
+      logger.debug "get_members: page_id: %d, queue_size: %d" % [page_id, queue.size]
       members = mixi.community_members(community_id, page_id)
       queue.push members
       sleep 10
