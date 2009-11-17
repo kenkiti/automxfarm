@@ -391,7 +391,7 @@ class MxFarm
     farm.each do |index, land|
       next if land.nil?
       land["pest"].times do
-        puts "[land.kill_pest] land_id: %d, %s" % [index, pesters_name(land)]
+        puts "[land.kill_pest] land_id: %d %s" % [index, pesters_name(land)]
         call_api("land.kill_pest", :land_index => index)
       end
     end
@@ -436,7 +436,7 @@ class MxFarm
     ranch.each do |index, fold|
       next if fold.nil?
       next unless fold["is_scare"]
-      puts "[fold.cure] fold_id: %d, %s" % [index, scarers_name(fold)]
+      puts "[fold.cure] fold_id: %d %s" % [index, scarers_name(fold)]
       call_api("fold.cure", :land_index => index)
     end
     ranch.each do |index, fold|
@@ -503,7 +503,7 @@ class MxFarm
     ranch.each do |index, fold|
       next unless fold["is_scare"]
       next if fold["scarer"].include?(@my_id)
-      puts "[fold.friend.cure] mixi: %s, fold_id: %d" % [friend_name(friend_id), index]
+      puts "[fold.friend.cure] mixi: %s, fold_id: %d %s" % [friend_name(friend_id), index, scarers_name(fold)]
       call_api("fold.friend.cure", :land_index => index, :friend_id => friend_id)
     end
     ranch.each do |index, fold|
