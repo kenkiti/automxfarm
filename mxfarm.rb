@@ -32,7 +32,7 @@ require "rubygems"
 require "mechanize"
 require "json"
 
-Version = "0.0.1"
+Version = "0.0.2"
 MY_USER_AGENT = "Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_6_2; ja-jp) AppleWebKit/531.21.8 (KHTML, like Gecko) Version/4.0.4 Safari/531.21.10"
 
 def encode_query(query)
@@ -265,6 +265,7 @@ class MxFarm
   end
 
   def treat_mine
+    store_get
     treat_my_farm
     treat_my_ranch
   end
@@ -338,10 +339,10 @@ class MxFarm
       :rekoo_killer => @my_id,
       :method => method,
     }.merge(params)
+    sleep @options[:wait]
     ## Use net/http instead of mechanize for speeding up
     # @agent.post("http://mxfarm.rekoo.com/get_api/", post_data)
     # json = JSON.parse(@agent.page.body)
-    sleep @options[:wait]
     response = @http.post("/get_api/", encode_query(post_data), {
       "User-Agent" => MY_USER_AGENT,
       "Accept-Language" => "ja",
@@ -357,6 +358,10 @@ class MxFarm
       :store => "false",
       :config => "false",
     })
+    if mixi_id.nil?
+      @gold = json["gold"]
+      @level = json["level"]
+    end
     json[type]
   end
 
@@ -365,14 +370,40 @@ class MxFarm
     json[type == "farm" ? "seeds" : "babies"].keys.first
   end
 
-  def store_buy(type, params)
-    @log.info "[store.buy] type: %s, name: %s, num: %d" % [params[:type], params[:name], params[:num]]
+  def store_get
+    @log.info "[store.get]"
+    json = call_api("store.get")
+    @seeds = {}
+    json["farm"]["seeds"].each do |k, v|
+      next if v["goodstype"] == "flower"
+      gold_need = v["seed_price"]["gold"]
+      next unless gold_need
+      @seeds[k] = {
+        :level_need => v["level_need"],
+        :gold_need => gold_need,
+      }
+    end
+    @babies = {}
+    json["ranch"]["babies"].each do |k, v|
+      gold_need = v["buy_price"]["gold"]
+      next unless gold_need
+      @babies[k] = {
+        :level_need => v["level_need"],
+        :gold_need => gold_need,
+      }
+    end
+    json
+  end
+
+
+  def store_buy(params)
+    @log.info "[store.buy] " + %w(scene_type category type name num).map { |key| "#{key}: #{params[key.to_sym]}" }.join(", ")
     call_api("store.buy", {
+      :scene_type => params[:scene_type],
+      :category => params[:category],
       :type => params[:type],
       :name => params[:name],
       :num => params[:num],
-      :scene_type => type,
-      :category => "property",
       :money_type => "gold",
     })
   end
@@ -383,10 +414,21 @@ class MxFarm
   end
 
   def land_seed(index, land)
-    merchandise_type = get_merchandise("farm")
-    return unless merchandise_type
-    @log.info "[land.seed] land_id: %d, crop_type: %s" % [index, merchandise_type]
-    call_api("land.seed", :land_index => index, :crop_type => merchandise_type)
+    name = get_merchandise("farm")
+    unless name
+      max_level = 0
+      @seeds.each do |k, v|
+        next if v[:level_need] > @level["farm"]
+        next if v[:gold_need] > @gold
+        next if max_level > v[:level_need]
+        name = k
+        max_level = v[:level_need]
+      end
+      return unless name
+      store_buy(:scene_type => "farm", :category => "seed", :name => name, :num => 1)
+    end
+    @log.info "[land.seed] land_id: %d, crop_type: %s" % [index, name]
+    return call_api("land.seed", :land_index => index, :crop_type => name)
   end
 
   def fold_clear(index, fold)
@@ -395,10 +437,21 @@ class MxFarm
   end
 
   def fold_breed
-    merchandise_type = get_merchandise("ranch")
-    return unless merchandise_type
-    @log.info "[fold.breed] animal_type: %s" % merchandise_type
-    call_api("fold.breed", :type => merchandise_type, :num => 1)
+    name = get_merchandise("ranch")
+    unless name
+      max_level = 0
+      @babies.each do |k, v|
+        next if v[:level_need] > @level["ranch"]
+        next if v[:gold_need] > @gold
+        next if max_level > v[:level_need]
+        name = k
+        max_level = v[:level_need]
+      end
+      return unless name
+      store_buy(:scene_type => "farm", :category => "baby", :name => name, :num => 1)
+    end
+    @log.info "[fold.breed] animal_type: %s" % name
+    return call_api("fold.breed", :type => name, :num => 1)
   end
   
   def treat_my_farm
@@ -440,7 +493,7 @@ class MxFarm
       else
         if @options[:promotant]
           next if land["fertile"] != 0
-          store_buy("farm", :type => "fertilizer", :name => "common", :num => 1)
+          store_buy(:scene_type => "farm", :category => "property", :type => "fertilizer", :name => "common", :num => 1)
           @log.info "[land.fertilize] land_id: %d, name: common" % index
           call_api("land.fertilize", :land_index => index, :name => "common")
         end
@@ -480,7 +533,7 @@ class MxFarm
       else
         if @options[:promotant]
           next if fold["is_feed"] != 0
-          store_buy("ranch", :type => "feedstuffs", :name => "common", :num => 1)
+          store_buy(:scene_type => "ranch", :category => "property", :type => "feedstuffs", :name => "common", :num => 1)
           @log.info "[fold.feed] land_id: %d, name: common" % index
           call_api("fold.feed", :land_index => index, :name => "common")
         end
@@ -571,7 +624,7 @@ def main
     opt.on("-w", "--wait SEC") { |v| options[:wait] = v.to_f }
     opt.on("-P", "--promotant") { |v| options[:promotant] = true }
     opt.on("-l", "--log FILE") { |v| log_file = v }
-    opt.on("-V", "--verbose") { |v| verbose = true }
+    opt.on("-v", "--verbose") { |v| verbose = true }
     opt.parse!
   end
   return unless email && password
