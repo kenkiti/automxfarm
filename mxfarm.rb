@@ -366,8 +366,14 @@ class MxFarm
   end
 
   def get_merchandise(type)
+    @log.info "[package.get_merchandise] scene_type: %s" % type
     json = call_api("package.get_merchandise", { :scene_type => type })
     json[type == "farm" ? "seeds" : "babies"].keys.first
+  end
+
+  def sale_harvest_all(type)
+    @log.info "[user.sale_harvest_all] type: %s" % type
+    call_api("user.sale_harvest_all", { :scene_type => type, :sell => "all" })
   end
 
   def store_get
@@ -394,7 +400,6 @@ class MxFarm
     end
     json
   end
-
 
   def store_buy(params)
     @log.info "[store.buy] " + %w(scene_type category type name num).map { |key| "#{key}: #{params[key.to_sym]}" }.join(", ")
@@ -459,6 +464,8 @@ class MxFarm
     unless json["task_login"]
       @log.info "[task.everyday_login]"
       call_api("task.everyday_login")
+      sale_harvest_all("farm")
+      sale_harvest_all("ranch")
     end
     farm = json["crops"]["main"]
     farm.each do |index, land|
