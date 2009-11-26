@@ -222,13 +222,13 @@ class Mixi
   end
 end
 
-
 class MxFarm
   GADGET = "http://mxfarm.rekoo.com/?v=%d" % Time.now.to_i
   URL = "http://mxfarm.rekoo.com/embed_swf/"
   APP_ID = 7157
-
   attr_reader :friend_list
+  class ServerError < StandardError; end
+  class SessionError < StandardError; end
 
   def initialize(logger, options = {})
     @log = logger
@@ -239,6 +239,7 @@ class MxFarm
   end
 
   def login(mixi, friend_ids)
+    @log.info "[user.login]"
     mixi.get_session_token(APP_ID)
     post_data = make_post_data(mixi, friend_ids)
     @session_value = mixi.get_session_value(GADGET, URL, post_data)
@@ -247,6 +248,7 @@ class MxFarm
   end
 
   def get_friends(type = "farm")
+    @log.info "[user.get_friends]"
     json = call_api("user.get_friends", {
       :scene_type => type,
       :uid => @my_id,
@@ -265,6 +267,7 @@ class MxFarm
   end
 
   def treat_mine
+    @log.info "[user.treat_mine]"
     store_get
     treat_my_farm
     treat_my_ranch
@@ -340,13 +343,26 @@ class MxFarm
       :method => method,
     }.merge(params)
     sleep @options[:wait]
-    ## Use net/http instead of mechanize for speeding up
-    # @agent.post("http://mxfarm.rekoo.com/get_api/", post_data)
-    # json = JSON.parse(@agent.page.body)
-    response = @http.post("/get_api/", encode_query(post_data), {
-      "User-Agent" => MY_USER_AGENT,
-      "Accept-Language" => "ja",
-    })
+    fib = lambda {a, b = 1, 1; lambda {a, b = b, a+b; b}}.call
+    counter = fib
+    begin
+      ## Use net/http instead of mechanize for speeding up
+      response = @http.post("/get_api/", encode_query(post_data), {
+          "User-Agent" => MY_USER_AGENT,
+          "Accept-Language" => "ja",
+        })
+      case response.code.to_i
+      when 200 then # pass
+      when 304 then raise SessionError, "304: NOT MODIFIED"
+      else raise ServerError, "#{response.code}: #{response.message}"
+      end
+    rescue Errno::ETIMEDOUT, ServerError => e
+      wait = @options[:wait] * counter.call
+      @log.warn "#{$!}...sleep #{wait} seconds"
+      sleep wait
+      retry
+    end
+
     json = JSON.parse(response.body)
     json["data"]
   end
@@ -681,4 +697,7 @@ def main
   farm_thread.join
 end
 
-main
+if $0 == __FILE__
+  main
+end
+
