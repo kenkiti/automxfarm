@@ -625,7 +625,7 @@ class MxFarm
 end
 
 
-def main
+if $0 == __FILE__
   email = nil
   password = nil
   community_id = nil
@@ -696,5 +696,3 @@ def main
   queue.push nil
   farm_thread.join
 end
-
-main
