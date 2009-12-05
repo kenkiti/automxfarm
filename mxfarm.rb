@@ -44,7 +44,12 @@ class Queue
 
   def initialize
     @list = []
+    @excluded = []
     @mutex = Mutex.new
+  end
+
+  def exclude(list)
+    @excluded = list
   end
 
   def size
@@ -55,8 +60,15 @@ class Queue
     @mutex.synchronize do
       case obj
       when Array
-        @list.concat obj
-      when Integer, String, NilClass
+        obj.each do |i|
+          @list << i unless @excluded.include? i
+        end
+      when Integer
+        @list << obj unless @excluded.include? obj 
+      when String
+        i = obj.to_i
+        @list << i unless @excluded.include? i
+      when NilClass
         @list << obj
       else
         raise "Unknown class: %s" % obj.class.name
@@ -70,6 +82,7 @@ class Queue
       return @list.slice!(0, num)
     end
   end
+
 end
 
 
@@ -595,7 +608,7 @@ class MxFarm
       next if land["stealer"].include?(@my_id)
       next if land["caught_stealer"].include?(@my_id)
       @log.info "[land.friend.steal] mixi: %s, land_id: %d, crop_type: %s" % [friend_name(friend_id), index, land["crop_type"]]
-      call_api("land.friend.steal", :land_index => index, :friend_id => friend_id)
+      call_api("land.friend.steal", :land_index => index, :friend_id => friend_id, :type => "no")
     end
   end
 
@@ -624,36 +637,38 @@ class MxFarm
          next if fold["stealer"].include?(@my_id)
       end
       @log.info "[fold.friend.steal] mixi: %s, fold_id: %d, animal_type: %s" % [friend_name(friend_id), index, fold["animal_type"]]
-      result = call_api("fold.friend.steal", :land_index => index, :friend_id => friend_id)
+      result = call_api("fold.friend.steal", :land_index => index, :friend_id => friend_id, :type => "no", :scene_type => "ranch")
     end
   end
 end
 
-
-def main
+if $0 == __FILE__
   email = nil
   password = nil
   community_id = nil
   mixi_ids = nil
+  exclude_ids = []
   log_file = nil
   verbose = false
   options = {
     :promotant => false,
-    :wait => 0.1,
+    :wait => 2.0,
   }
   ARGV.options do |opt|
-    opt.on("-e", "--email ADDRESS") { |v| email = v }
-    opt.on("-p", "--password PASSWORD") { |v| password = v }
-    opt.on("-i", "--id MIXI_ID[,MIXI_ID[,...]]") { |v| mixi_ids = v.split(",").map { |x| x.to_i } }
-    opt.on("-c", "--community COMMUNITY_ID") { |v| community_id = v.to_i }
-    opt.on("-w", "--wait SEC") { |v| options[:wait] = v.to_f }
-    opt.on("-P", "--promotant") { |v| options[:promotant] = true }
-    opt.on("-l", "--log FILE") { |v| log_file = v }
-    opt.on("-v", "--verbose") { |v| verbose = true }
+    opt.on("-e", "--email ADDRESS", "email address to login mixi") { |v| email = v }
+    opt.on("-p", "--password PASSWORD", "password to login mixi") { |v| password = v }
+    opt.on("-i", "--id MIXI_ID[,MIXI_ID[,...]]", "treat mixi users") { |v| mixi_ids = v.split(",").map { |x| x.to_i } }
+    opt.on("-E", "--exclude MIXI_ID[,MIXI_ID[,...]]", "exclude specified ids") { |v| exclude_ids = v.split(",").map { |x| x.to_i } }
+    opt.on("-c", "--community COMMUNITY_ID", "treat community members") { |v| community_id = v.to_i }
+    opt.on("-w", "--wait SEC", "wait a time when call API") { |v| options[:wait] = v.to_f }
+    opt.on("-P", "--promotant", "use fertilizer and feedstuffs") { |v| options[:promotant] = true }
+    opt.on("-l", "--log FILE", "output info to log file") { |v| log_file = v }
+    opt.on("-v", "--verbose", "more info") { |v| verbose = true }
     opt.parse!
   end
   return unless email && password
   queue = Queue.instance
+  queue.exclude(exclude_ids)
   logger = Logger.new(log_file || STDOUT)
   logger.formatter = LogFormatter.new
   logger.level = verbose ? Logger::DEBUG : Logger::INFO
@@ -678,28 +693,23 @@ def main
   mixi = Mixi.new(email, password)
   if community_id
     num = mixi.community_size(community_id, "email: #{email}\npassword: #{password}")
-    pages_list = (1..(num / 50)).to_a.sort_by { |i| rand }
+    pages_list = (1..(num / 50.0).ceil).to_a.sort_by { |i| rand }
     pages_list.each do |page_id|
       while queue.size > 10000
         sleep 1
       end
       logger.debug "get_members: page_id: %d, queue_size: %d" % [page_id, queue.size]
-      members = mixi.community_members(community_id, page_id)
-      queue.push members
+      member_ids = mixi.community_members(community_id, page_id)
+      queue.push member_ids
       sleep 10
     end
   elsif mixi_ids
     queue.push mixi_ids
   else
     mixi.get_session_token(MxFarm::APP_ID)
-    friend_ids = mixi.get_viewer_friends.map { |f| f["id"] }
+    friend_ids = mixi.get_viewer_friends.map { |f| f["id"].to_i }
     queue.push friend_ids
   end
   queue.push nil
   farm_thread.join
 end
-
-if $0 == __FILE__
-  main
-end
-
