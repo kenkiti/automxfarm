@@ -18,6 +18,8 @@
 
 require 'mxfarm'
 require 'kconv'
+require 'base64'
+require 'openssl'
 
 #Version = "0.0.1"
 
@@ -88,7 +90,7 @@ class MyBot < MxFarm
         next if land["stealer"].include?(@my_id)
         next if land["caught_stealer"].include?(@my_id)
         puts "[land.friend.steal] mixi: %s, land_id: %d, crop_type: %s" % [friend_name(friend_id), index, land["crop_type"]]
-        call_api("land.friend.steal", :land_index => index, :friend_id => friend_id)
+        call_api("land.friend.steal", :land_index => index, :friend_id => friend_id, :naruto => naruto, :type => 'no')
         break if (params[:steal]-=1) == 0 
       end
     end
@@ -134,10 +136,25 @@ class MyBot < MxFarm
           next if fold["stealer"].include?(@my_id)
         end
         puts "[fold.friend.steal] mixi: %s, fold_id: %d, animal_type: %s" % [friend_name(friend_id), index, fold["animal_type"]]
-        result = call_api("fold.friend.steal", :land_index => index, :friend_id => friend_id)
+        result = call_api("fold.friend.steal", :land_index => index, :friend_id => friend_id, :naruto => naruto, :type => 'no')
         break if (params[:steal]-=1) == 0 
       end
     end
+  end
+
+  def encrypt(data)
+    password = "waltersh"
+    padding = lambda{|s| s.ljust((s.size/8+1)*8, rand(10).to_s)} # adhoc
+
+    c = OpenSSL::Cipher::Cipher.new("des-ecb")
+    c.send(:encrypt)
+    c.padding = 0 # disable padding
+    c.pkcs5_keyivgen(password)
+    c.update(padding[data]) + c.final
+  end
+
+  def naruto 
+    Base64::encode64(encrypt(@my_id))
   end
 end
 
@@ -183,7 +200,7 @@ def main
 
   log_file = nil
   options = {
-    :wait => 1.0,
+    :wait => 2.0,
     :verbose => verbose, 
     :steal => steal, 
     :pest => pest, 
