@@ -229,6 +229,7 @@ class MxFarm
   attr_reader :friend_list
   class ServerError < StandardError; end
   class SessionError < StandardError; end
+  class FatalError < StandardError; end
 
   def initialize(logger, options = {})
     @log = logger
@@ -354,6 +355,7 @@ class MxFarm
       case response.code.to_i
       when 200 then # pass
       when 304 then raise SessionError, "304: NOT MODIFIED"
+      when 500 then raise FatalError, "500: INTERNAL SERVER ERROR"
       else raise ServerError, "#{response.code}: #{response.message}"
       end
     rescue Errno::ETIMEDOUT, ServerError => e
@@ -637,7 +639,7 @@ def main
   verbose = false
   options = {
     :promotant => false,
-    :wait => 2.0,
+    :wait => 0.1,
   }
   ARGV.options do |opt|
     opt.on("-e", "--email ADDRESS") { |v| email = v }
