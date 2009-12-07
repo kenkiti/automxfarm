@@ -543,7 +543,7 @@ class MxFarm
       case fold["state"]
       when "fruit"
         @log.info "[fold.harvest] fold_id: %d" % index
-        call_api("fold.harvest", { :land_index => index })
+        call_api("fold.harvest", :land_index => index)
         next unless fold["next_state"] == "dead"
         fold_clear(index, fold)
         fold_breed
@@ -551,20 +551,17 @@ class MxFarm
         fold_clear(index, fold)
         fold_breed
       else
+        total = fold["auto_harvest"].inject(0) { |t, i| t += i }
+        if total > 0
+           @log.info "[fold.harvest] fold_id: %d, animal_type: %s" % [index, fold["animal_type"]]
+           call_api("fold.harvest", :land_index => index)
+        end
         if @options[:promotant]
           next if fold["is_feed"] != 0
           store_buy(:scene_type => "ranch", :category => "property", :type => "feedstuffs", :name => "common", :num => 1)
           @log.info "[fold.feed] land_id: %d, name: common" % index
           call_api("fold.feed", :land_index => index, :name => "common")
         end
-      end
-    end
-    ranch.each do |index, fold|
-      next if fold.nil?
-      total = fold["auto_harvest"].inject(0) { |t, i| t += i }
-      if total > 0
-         @log.info "[fold.harvest] fold_id: %d, animal_type: %s" % [index, fold["animal_type"]]
-         call_api("fold.harvest", :land_index => index)
       end
     end
   end
