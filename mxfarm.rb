@@ -605,15 +605,15 @@ class MxFarm
       call_api("fold.friend.cure", :land_index => index, :friend_id => friend_id)
     end
     ranch.each do |index, fold|
+      next if fold["harvest_type"] == 3
+      next if fold["stealer"].include?(@my_id)
       if fold["state"] == "fruit"
          next if fold["total_fruit"].to_i <= 25
-         next if fold["stealer"].include?(@my_id)
          next if fold["caught_stealer"].include?(@my_id)
       else
          total = fold["auto_harvest"].inject(0) { |t, i| t += i }
          limit = fold["auto_harvest"].size * 25
          next if total <= limit
-         next if fold["stealer"].include?(@my_id)
       end
       @log.info "[fold.friend.steal] mixi: %s, fold_id: %d, animal_type: %s" % [friend_name(friend_id), index, fold["animal_type"]]
       result = call_api("fold.friend.steal", :land_index => index, :friend_id => friend_id, :type => "no", :scene_type => "ranch")
