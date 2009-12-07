@@ -284,7 +284,7 @@ class MxFarm
   end
 
   def treat_friends
-    get_friends.each do |friend_id, friend|
+    get_friends.sort_by { rand }.each do |friend_id, friend|
       next if friend_id == @my_id
       interval = Time.now.to_i - friend[:login_time]
       @log.debug "%s: %s idle" % [friend_name(friend_id), sec2dhms(interval)]
@@ -663,7 +663,6 @@ if $0 == __FILE__
       mixi_app = Mixi.new(email, password)
       mx_farm = MxFarm.new(logger, options)
       mx_farm.login(mixi_app, friend_ids.compact)
-      friends = mx_farm.get_friends
       mx_farm.treat_mine
       mx_farm.treat_friends
       break if friend_ids.last.nil?
