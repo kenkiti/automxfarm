@@ -672,7 +672,7 @@ if $0 == __FILE__
   mixi = Mixi.new(email, password)
   if community_id
     num = mixi.community_size(community_id, "email: #{email}\npassword: #{password}")
-    pages_list = (1..(num / 50.0).ceil).to_a.sort_by { |i| rand }
+    pages_list = (1..(num / 50.0).ceil).to_a.sort_by { rand }
     pages_list.each do |page_id|
       while queue.size > 10000
         sleep 1
