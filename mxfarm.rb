@@ -576,26 +576,6 @@ class MxFarm
     end
   end
 
-  def friend_put_pest(friend_id, index, land)
-    return if @no_pests
-    return if land["pest"] >= 3
-    # seed sprout leaflet leaf bloom fruit dead
-    case land["state"]
-    when "seed", "fruit", "dead"
-      return
-    when "bloom"
-      return if land["next_state_start_time"].to_i - Time.now.to_i < 60 * 60 * 10  # 10 hours
-    end
-    # put_pest: -1.25
-    # kill_pest: +3
-    return if land["increment_fruit"] + land["pest"] * 3 >= 25
-    @log.info "[land.friend.put_pest] mixi: %s, land_id: %d, crop_type: %s" % [friend_name(friend_id), index, land["crop_type"]]
-    json = call_api("land.friend.put_pest", :friend_id => friend_id, :land_index => index)
-    if json["return_code"] == 4
-      @no_pests = true
-    end
-  end
-
   def treat_friend_farm(friend_id)
     json = get_scene("farm", friend_id)
     farm = json["crops"]["main"].delete_if { |k, v| v.nil? }
@@ -607,7 +587,23 @@ class MxFarm
       end
     end
     farm.each do |index, land|
-      friend_put_pest(friend_id, index, land)
+      next if @no_pests
+      next if land["pester"].include?(@my_id) && land["pest"] >= 3
+      # seed sprout leaflet leaf bloom fruit dead
+      case land["state"]
+      when "seed", "fruit", "dead"
+        next
+      when "bloom"
+        next if land["next_state_start_time"].to_i - Time.now.to_i < 60 * 60 * 10  # 10 hours
+      end
+      # put_pest: -1.25
+      # kill_pest: +3
+      next if land["increment_fruit"] + land["pest"] * 3 >= 25
+      @log.info "[land.friend.put_pest] mixi: %s, land_id: %d, crop_type: %s" % [friend_name(friend_id), index, land["crop_type"]]
+      json = call_api("land.friend.put_pest", :friend_id => friend_id, :land_index => index)
+      if json["return_code"] == 4
+        @no_pests = true
+      end
     end
     farm.each do |index, land|
       next unless land["water"] == -1 
@@ -624,26 +620,6 @@ class MxFarm
     end
   end
 
-  def friend_scare(friend_id, index, fold)
-    return if @no_scares
-    return if fold["is_scare"]
-    # baby young adult fruit dead
-    case fold["state"]
-    when "baby", "fruit", "dead"
-      return
-    when "adult"
-      return if fold["next_state_start_time"].to_i - Time.now.to_i < 60 * 60 * 10  # 10 hours
-    end
-    # scare: -?
-    # cure: +?
-    return if fold["increment_fruit"] >= 25
-    @log.info "[fold.friend.scare] mixi: %s, fold_id: %d, animal_type: %s" % [friend_name(friend_id), index, fold["animal_type"]]
-    json = call_api("fold.friend.scare", :friend_id => friend_id, :land_index => index)
-    if json["return_code"] == 2
-      @no_scares = true
-    end
-  end
-
   def treat_friend_ranch(friend_id)
     json = get_scene("ranch", friend_id)
     ranch = json["animals"]["main"].delete_if { |k, v| v.nil? }
@@ -654,7 +630,23 @@ class MxFarm
       call_api("fold.friend.cure", :friend_id => friend_id, :land_index => index)
     end
     ranch.each do |index, fold|
-      friend_scare(friend_id, index, fold)
+      next if @no_scares
+      next if fold["scarer"].include?(@my_id)
+      # baby young adult fruit dead
+      case fold["state"]
+      when "baby", "fruit", "dead"
+        next
+      when "adult"
+        next if fold["next_state_start_time"].to_i - Time.now.to_i < 60 * 60 * 10  # 10 hours
+      end
+      # scare: -?
+      # cure: +?
+      next if fold["increment_fruit"] >= 25
+      @log.info "[fold.friend.scare] mixi: %s, fold_id: %d, animal_type: %s" % [friend_name(friend_id), index, fold["animal_type"]]
+      json = call_api("fold.friend.scare", :friend_id => friend_id, :land_index => index)
+      if json["return_code"] == 2
+        @no_scares = true
+      end
     end
     if json["sink"]["state"] == 1
       @log.info "[fold.friend.water] mixi: %s" % friend_name(friend_id)
