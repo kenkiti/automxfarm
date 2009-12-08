@@ -639,12 +639,12 @@ class MxFarm
       when "adult"
         next if fold["next_state_start_time"].to_i - Time.now.to_i < 60 * 60 * 10  # 10 hours
       end
-      # scare: -?
-      # cure: +?
+      # scare: -2
+      # cure: +3.75
       next if fold["increment_fruit"] >= 25
       @log.info "[fold.friend.scare] mixi: %s, fold_id: %d, animal_type: %s" % [friend_name(friend_id), index, fold["animal_type"]]
-      json = call_api("fold.friend.scare", :friend_id => friend_id, :land_index => index)
-      if json["return_code"] == 2
+      result = call_api("fold.friend.scare", :friend_id => friend_id, :land_index => index)
+      if result["return_code"] == 2
         @no_scares = true
       end
     end
