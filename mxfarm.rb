@@ -26,6 +26,8 @@ require "net/http"
 require "singleton"
 require "thread"
 require "logger"
+require "openssl"
+require "base64"
 require "pp"
 
 require "rubygems"
@@ -365,11 +367,17 @@ class MxFarm
   end
 
   def get_scene(type, mixi_id = nil)
+    if mixi_id.nil?
+      @log.debug "[user.get_scene] scene_type: %s" % type
+    else
+      @log.debug "[user.get_scene] mixi: %s, scene_type: %s" % [friend_name(mixi_id), type]
+    end
     json = call_api("user.get_scene", {
-      :scene_type => type,
       :uid => mixi_id || @my_id,
+      :scene_type => type,
       :store => "false",
       :config => "false",
+      :naruto => naruto,
     })
     json_data = json["data"]
     if mixi_id.nil?
@@ -391,7 +399,7 @@ class MxFarm
   end
 
   def store_get
-    @log.info "[store.get]"
+    @log.debug "[store.get]"
     json = call_api("store.get")
     json_data = json["data"]
     @seeds = {}
@@ -448,7 +456,7 @@ class MxFarm
       store_buy(:scene_type => "farm", :category => "seed", :name => name, :num => 1)
     end
     @log.info "[land.seed] land_id: %d, crop_type: %s" % [index, name]
-    return call_api("land.seed", :land_index => index, :crop_type => name)
+    return call_api("land.seed", :land_index => index, :crop_type => name, :naruto => naruto)
   end
 
   def fold_clear(index, fold)
@@ -471,7 +479,7 @@ class MxFarm
       store_buy(:scene_type => "farm", :category => "baby", :name => name, :num => 1)
     end
     @log.info "[fold.breed] animal_type: %s" % name
-    return call_api("fold.breed", :type => name, :num => 1)
+    return call_api("fold.breed", :type => name, :num => 1, :naruto => naruto)
   end
   
   def treat_my_farm
@@ -599,6 +607,9 @@ class MxFarm
       end
     end
     farm.each do |index, land|
+      friend_put_pest(friend_id, index, land)
+    end
+    farm.each do |index, land|
       next unless land["water"] == -1 
       @log.info "[land.friend.water] mixi: %s, land_id: %d" % [friend_name(friend_id), index]
       call_api("land.friend.water", :friend_id => friend_id, :land_index => index)
@@ -609,10 +620,7 @@ class MxFarm
       next if land["stealer"].include?(@my_id)
       next if land["caught_stealer"].include?(@my_id)
       @log.info "[land.friend.steal] mixi: %s, land_id: %d, crop_type: %s" % [friend_name(friend_id), index, land["crop_type"]]
-      call_api("land.friend.steal", :friend_id => friend_id, :land_index => index, :type => "no")
-    end
-    farm.each do |index, land|
-      friend_put_pest(friend_id, index, land)
+      call_api("land.friend.steal", :friend_id => friend_id, :land_index => index, :type => "no", :naruto => naruto)
     end
   end
 
@@ -638,16 +646,19 @@ class MxFarm
 
   def treat_friend_ranch(friend_id)
     json = get_scene("ranch", friend_id)
-    if json["sink"]["state"] == 1
-      @log.info "[fold.friend.water] mixi: %s" % friend_name(friend_id)
-      call_api("fold.friend.water", :friend_id => friend_id)
-    end
     ranch = json["animals"]["main"].delete_if { |k, v| v.nil? }
     ranch.each do |index, fold|
       next unless fold["is_scare"]
       next if fold["scarer"].include?(@my_id)
       @log.info "[fold.friend.cure] mixi: %s, fold_id: %d %s" % [friend_name(friend_id), index, scarers_name(fold)]
       call_api("fold.friend.cure", :friend_id => friend_id, :land_index => index)
+    end
+    ranch.each do |index, fold|
+      friend_scare(friend_id, index, fold)
+    end
+    if json["sink"]["state"] == 1
+      @log.info "[fold.friend.water] mixi: %s" % friend_name(friend_id)
+      call_api("fold.friend.water", :friend_id => friend_id)
     end
     ranch.each do |index, fold|
       next if fold["harvest_type"] == 3
@@ -661,11 +672,16 @@ class MxFarm
         next if auto_harvest.all? { |i| i <= 25 }
       end
       @log.info "[fold.friend.steal] mixi: %s, fold_id: %d, animal_type: %s" % [friend_name(friend_id), index, fold["animal_type"]]
-      result = call_api("fold.friend.steal", :friend_id => friend_id, :land_index => index, :type => "no")
+      result = call_api("fold.friend.steal", :friend_id => friend_id, :land_index => index, :type => "no", :naruto => naruto)
     end
-    ranch.each do |index, fold|
-      friend_scare(friend_id, index, fold)
-    end
+  end
+
+  def naruto
+    src = @my_id.to_s.ljust(8, rand(10).to_s)
+    enc = OpenSSL::Cipher::DES.new(:ECB)
+    enc.key = "waltersh"
+    enc.encrypt
+    Base64::encode64(enc.update(src)).chomp
   end
 end
 
