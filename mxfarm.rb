@@ -587,7 +587,7 @@ class MxFarm
       end
     end
     farm.each do |index, land|
-      next if @no_pests
+      next if @no_more_pest
       next if land["pester"].include?(@my_id) && land["pest"] >= 3
       # seed sprout leaflet leaf bloom fruit dead
       case land["state"]
@@ -602,7 +602,7 @@ class MxFarm
       @log.info "[land.friend.put_pest] mixi: %s, land_id: %d, crop_type: %s" % [friend_name(friend_id), index, land["crop_type"]]
       json = call_api("land.friend.put_pest", :friend_id => friend_id, :land_index => index)
       if json["return_code"] == 4
-        @no_pests = true
+        @no_more_pest = true
       end
     end
     farm.each do |index, land|
@@ -630,7 +630,7 @@ class MxFarm
       call_api("fold.friend.cure", :friend_id => friend_id, :land_index => index)
     end
     ranch.each do |index, fold|
-      next if @no_scares
+      next if @no_more_scare
       next if fold["scarer"].include?(@my_id)
       # baby young adult fruit dead
       case fold["state"]
@@ -645,7 +645,7 @@ class MxFarm
       @log.info "[fold.friend.scare] mixi: %s, fold_id: %d, animal_type: %s" % [friend_name(friend_id), index, fold["animal_type"]]
       result = call_api("fold.friend.scare", :friend_id => friend_id, :land_index => index)
       if result["return_code"] == 2
-        @no_scares = true
+        @no_more_scare = true
       end
     end
     if json["sink"]["state"] == 1
