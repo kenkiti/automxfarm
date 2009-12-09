@@ -688,7 +688,7 @@ if $0 == __FILE__
   verbose = false
   options = {
     :promotant => false,
-    :wait => 2.0,
+    :wait => 1.1,
   }
   ARGV.options do |opt|
     opt.on("-e", "--email ADDRESS", "email address to login mixi") { |v| email = v }
