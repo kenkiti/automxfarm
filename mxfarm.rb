@@ -26,13 +26,15 @@ require "net/http"
 require "singleton"
 require "thread"
 require "logger"
+require "openssl"
+require "base64"
 require "pp"
 
 require "rubygems"
 require "mechanize"
 require "json"
 
-Version = "0.0.2"
+Version = "0.0.3"
 MY_USER_AGENT = "Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_6_2; ja-jp) AppleWebKit/531.21.8 (KHTML, like Gecko) Version/4.0.4 Safari/531.21.10"
 
 def encode_query(query)
@@ -250,6 +252,7 @@ class MxFarm
     ## Use net/http instead of mechanize for speeding up
     # @agent = WWW::Mechanize.new { |a| a.user_agent = MY_USER_AGENT }
     @http = Net::HTTP.new("mxfarm.rekoo.com")
+    @friend_list = {}
   end
 
   def login(mixi, friend_ids)
@@ -262,15 +265,14 @@ class MxFarm
   end
 
   def get_friends(type = "farm")
-    @log.info "[user.get_friends]"
+    return @friend_list unless @friend_list.empty?
     json = call_api("user.get_friends", {
       :scene_type => type,
       :uid => @my_id,
       :store => "false",
       :config => "false",
     })
-    @friend_list = {}
-    json.each do |friend|
+    json["data"].each do |friend|
       @friend_list[friend["uid"]] = {
         :name => friend["name"],
         :login_time => friend["login_time"].to_i,
@@ -288,7 +290,7 @@ class MxFarm
   end
 
   def treat_friends
-    get_friends.each do |friend_id, friend|
+    get_friends.sort_by { rand }.each do |friend_id, friend|
       next if friend_id == @my_id
       interval = Time.now.to_i - friend[:login_time]
       @log.debug "%s: %s idle" % [friend_name(friend_id), sec2dhms(interval)]
@@ -313,7 +315,7 @@ class MxFarm
   end
 
   def friend_name(friend_id)
-    friend = @friend_list[friend_id]
+    friend = get_friends[friend_id]
     name = friend ? friend[:name] : "?"
     "%s(%d)" % [name, friend_id]
   end
@@ -379,27 +381,34 @@ class MxFarm
     end
 
     json = JSON.parse(response.body)
-    json["data"]
+    return json
   end
 
   def get_scene(type, mixi_id = nil)
+    if mixi_id.nil?
+      @log.debug "[user.get_scene] scene_type: %s" % type
+    else
+      @log.debug "[user.get_scene] mixi: %s, scene_type: %s" % [friend_name(mixi_id), type]
+    end
     json = call_api("user.get_scene", {
-      :scene_type => type,
       :uid => mixi_id || @my_id,
+      :scene_type => type,
       :store => "false",
       :config => "false",
+      :naruto => naruto,
     })
+    json_data = json["data"]
     if mixi_id.nil?
-      @gold = json["gold"]
-      @level = json["level"]
+      @gold = json_data["gold"]
+      @level = json_data["level"]
     end
-    json[type]
+    json_data[type]
   end
 
   def get_merchandise(type)
     @log.info "[package.get_merchandise] scene_type: %s" % type
     json = call_api("package.get_merchandise", { :scene_type => type })
-    json[type == "farm" ? "seeds" : "babies"].keys.first
+    json["data"][type == "farm" ? "seeds" : "babies"].keys.first
   end
 
   def sale_harvest_all(type)
@@ -408,10 +417,11 @@ class MxFarm
   end
 
   def store_get
-    @log.info "[store.get]"
+    @log.debug "[store.get]"
     json = call_api("store.get")
+    json_data = json["data"]
     @seeds = {}
-    json["farm"]["seeds"].each do |k, v|
+    json_data["farm"]["seeds"].each do |k, v|
       next if v["goodstype"] == "flower"
       gold_need = v["seed_price"]["gold"]
       next unless gold_need
@@ -421,7 +431,7 @@ class MxFarm
       }
     end
     @babies = {}
-    json["ranch"]["babies"].each do |k, v|
+    json_data["ranch"]["babies"].each do |k, v|
       gold_need = v["buy_price"]["gold"]
       next unless gold_need
       @babies[k] = {
@@ -464,7 +474,7 @@ class MxFarm
       store_buy(:scene_type => "farm", :category => "seed", :name => name, :num => 1)
     end
     @log.info "[land.seed] land_id: %d, crop_type: %s" % [index, name]
-    return call_api("land.seed", :land_index => index, :crop_type => name)
+    return call_api("land.seed", :land_index => index, :crop_type => name, :naruto => naruto)
   end
 
   def fold_clear(index, fold)
@@ -487,7 +497,7 @@ class MxFarm
       store_buy(:scene_type => "ranch", :category => "baby", :name => name, :num => 1)
     end
     @log.info "[fold.breed] animal_type: %s" % name
-    return call_api("fold.breed", :type => name, :num => 1)
+    return call_api("fold.breed", :type => name, :num => 1, :naruto => naruto)
   end
   
   def treat_my_farm
@@ -561,7 +571,7 @@ class MxFarm
       case fold["state"]
       when "fruit"
         @log.info "[fold.harvest] fold_id: %d" % index
-        call_api("fold.harvest", { :land_index => index })
+        call_api("fold.harvest", :land_index => index)
         next unless fold["next_state"] == "dead"
         fold_clear(index, fold)
         fold_breed
@@ -569,20 +579,17 @@ class MxFarm
         fold_clear(index, fold)
         fold_breed
       else
+        total = fold["auto_harvest"].inject(0) { |t, i| t += i }
+        if total > 0
+           @log.info "[fold.harvest] fold_id: %d, animal_type: %s" % [index, fold["animal_type"]]
+           call_api("fold.harvest", :land_index => index)
+        end
         if @options[:promotant]
           next if fold["is_feed"] != 0
           store_buy(:scene_type => "ranch", :category => "property", :type => "feedstuffs", :name => "common", :num => 1)
           @log.info "[fold.feed] land_id: %d, name: common" % index
           call_api("fold.feed", :land_index => index, :name => "common")
         end
-      end
-    end
-    ranch.each do |index, fold|
-      next if fold.nil?
-      total = fold["auto_harvest"].inject(0) { |t, i| t += i }
-      if total > 0
-         @log.info "[fold.harvest] fold_id: %d, animal_type: %s" % [index, fold["animal_type"]]
-         call_api("fold.harvest", :land_index => index)
       end
     end
   end
@@ -594,13 +601,32 @@ class MxFarm
       next if land["pester"].include?(@my_id)
       land["pest"].times do
         @log.info "[land.friend.kill_pest] mixi: %s, land_id: %d %s" % [friend_name(friend_id), index, pesters_name(land)]
-        call_api("land.friend.kill_pest", :land_index => index, :friend_id => friend_id)
+        call_api("land.friend.kill_pest", :friend_id => friend_id, :land_index => index)
+      end
+    end
+    farm.each do |index, land|
+      next if @no_more_pest
+      next if land["pester"].include?(@my_id) && land["pest"] >= 3
+      # seed sprout leaflet leaf bloom fruit dead
+      case land["state"]
+      when "seed", "fruit", "dead"
+        next
+      when "bloom"
+        next if land["next_state_start_time"].to_i - Time.now.to_i < 60 * 60 * 10  # 10 hours
+      end
+      # put_pest: -1.25
+      # kill_pest: +3
+      next if land["increment_fruit"] + land["pest"] * 3 >= 25
+      @log.info "[land.friend.put_pest] mixi: %s, land_id: %d, crop_type: %s" % [friend_name(friend_id), index, land["crop_type"]]
+      json = call_api("land.friend.put_pest", :friend_id => friend_id, :land_index => index)
+      if json["return_code"] == 4
+        @no_more_pest = true
       end
     end
     farm.each do |index, land|
       next unless land["water"] == -1 
       @log.info "[land.friend.water] mixi: %s, land_id: %d" % [friend_name(friend_id), index]
-      call_api("land.friend.water", :land_index => index, :friend_id => friend_id)
+      call_api("land.friend.water", :friend_id => friend_id, :land_index => index)
     end
     farm.each do |index, land|
       next unless land["state"] == "fruit"
@@ -608,37 +634,64 @@ class MxFarm
       next if land["stealer"].include?(@my_id)
       next if land["caught_stealer"].include?(@my_id)
       @log.info "[land.friend.steal] mixi: %s, land_id: %d, crop_type: %s" % [friend_name(friend_id), index, land["crop_type"]]
-      call_api("land.friend.steal", :land_index => index, :friend_id => friend_id, :type => "no")
+      call_api("land.friend.steal", :friend_id => friend_id, :land_index => index, :type => "no", :naruto => naruto)
     end
   end
 
   def treat_friend_ranch(friend_id)
     json = get_scene("ranch", friend_id)
-    if json["sink"]["state"] == 1
-      @log.info "[fold.friend.water] mixi: %s" % friend_name(friend_id)
-      call_api("fold.friend.water", :friend_id => friend_id)
-    end
     ranch = json["animals"]["main"].delete_if { |k, v| v.nil? }
     ranch.each do |index, fold|
       next unless fold["is_scare"]
       next if fold["scarer"].include?(@my_id)
       @log.info "[fold.friend.cure] mixi: %s, fold_id: %d %s" % [friend_name(friend_id), index, scarers_name(fold)]
-      call_api("fold.friend.cure", :land_index => index, :friend_id => friend_id)
+      call_api("fold.friend.cure", :friend_id => friend_id, :land_index => index)
     end
     ranch.each do |index, fold|
-      if fold["state"] == "fruit"
-         next if fold["total_fruit"].to_i <= 25
-         next if fold["stealer"].include?(@my_id)
-         next if fold["caught_stealer"].include?(@my_id)
+      next if @no_more_scare
+      next if fold["scarer"].include?(@my_id)
+      # baby young adult fruit dead
+      case fold["state"]
+      when "baby", "fruit", "dead"
+        next
+      when "adult"
+        next if fold["next_state_start_time"].to_i - Time.now.to_i < 60 * 60 * 10  # 10 hours
+      end
+      # scare: -2
+      # cure: +3.75
+      next if fold["increment_fruit"] >= 25
+      @log.info "[fold.friend.scare] mixi: %s, fold_id: %d, animal_type: %s" % [friend_name(friend_id), index, fold["animal_type"]]
+      result = call_api("fold.friend.scare", :friend_id => friend_id, :land_index => index)
+      if result["return_code"] == 2
+        @no_more_scare = true
+      end
+    end
+    if json["sink"]["state"] == 1
+      @log.info "[fold.friend.water] mixi: %s" % friend_name(friend_id)
+      call_api("fold.friend.water", :friend_id => friend_id)
+    end
+    ranch.each do |index, fold|
+      next if fold["harvest_type"] == 3
+      next if fold["stealer"].include?(@my_id)
+      next if fold["caught_stealer"].include?(@my_id)
+      auto_harvest = fold["auto_harvest"]
+      if auto_harvest.empty?
+        next if fold["state"] != "fruit"
+        next if fold["total_fruit"].to_i <= 25
       else
-         total = fold["auto_harvest"].inject(0) { |t, i| t += i }
-         limit = fold["auto_harvest"].size * 25
-         next if total <= limit
-         next if fold["stealer"].include?(@my_id)
+        next if auto_harvest.all? { |i| i <= 25 }
       end
       @log.info "[fold.friend.steal] mixi: %s, fold_id: %d, animal_type: %s" % [friend_name(friend_id), index, fold["animal_type"]]
-      result = call_api("fold.friend.steal", :land_index => index, :friend_id => friend_id, :type => "no", :scene_type => "ranch")
+      result = call_api("fold.friend.steal", :friend_id => friend_id, :land_index => index, :type => "no", :naruto => naruto)
     end
+  end
+
+  def naruto
+    src = @my_id.to_s.ljust(8, rand(10).to_s)
+    enc = OpenSSL::Cipher::DES.new(:ECB)
+    enc.key = "waltersh"
+    enc.encrypt
+    Base64::encode64(enc.update(src)).chomp
   end
 end
 
@@ -683,7 +736,6 @@ if $0 == __FILE__
       mixi_app = Mixi.new(email, password)
       mx_farm = MxFarm.new(logger, options)
       mx_farm.login(mixi_app, friend_ids.compact)
-      friends = mx_farm.get_friends
       mx_farm.treat_mine
       mx_farm.treat_friends
       break if friend_ids.last.nil?
@@ -693,7 +745,7 @@ if $0 == __FILE__
   mixi = Mixi.new(email, password)
   if community_id
     num = mixi.community_size(community_id, "email: #{email}\npassword: #{password}")
-    pages_list = (1..(num / 50.0).ceil).to_a.sort_by { |i| rand }
+    pages_list = (1..(num / 50.0).ceil).to_a.sort_by { rand }
     pages_list.each do |page_id|
       while queue.size > 10000
         sleep 1
