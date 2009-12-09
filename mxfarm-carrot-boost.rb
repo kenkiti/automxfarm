@@ -7,19 +7,21 @@
 
 require 'mxfarm'
 
-#Version = "0.0.1"
+#Version = "0.0.2"
 
 class MxFarmCarrot < MxFarm
   def land_seed(index)
     @log.info "[land.seed] land_id: %d, crop_type: %s" % [index, 'carrot']
-    r = call_api("land.seed", :land_index => index, :crop_type => 'carrot')
-    @options[:limit] -= 1 if @options[:limit].nil? == false && r.has_key?('crop_type')
-    r.has_key?('crop_type')
+    json = call_api("land.seed", :land_index => index, :crop_type => 'carrot', :naruto => naruto)
+    json_data = json["data"]
+    @options[:limit] -= 1 if @options[:limit].nil? == false && json_data.has_key?('crop_type')
+    json_data.has_key?('crop_type')
   end
 
   def prepare_seeds
     json = call_api("package.get_merchandise", { :scene_type => 'farm' })
-    count = (json['seeds'].has_key?('carrot')) ? json['seeds']['carrot'].to_i : 0
+    json_data = json["data"]
+    count = (json_data['seeds'].has_key?('carrot')) ? json_data['seeds']['carrot'].to_i : 0
     @log.info "[package.get_merchandise] carrot seeds: %d" % count
     buy_seeds if count == 0 && @options[:limit] > 0
   end
@@ -64,7 +66,7 @@ end
 def get_friend_ids(email, password)
   mixi = Mixi.new(email, password)
   mixi.get_session_token(MxFarm::APP_ID)
-  friend_ids = mixi.get_viewer_friends.map { |f| f["id"] }
+  friend_ids = mixi.get_viewer_friends.map { |f| f["id"].to_i }
 end
 
 def main
@@ -72,10 +74,10 @@ def main
   verbose = false
   limit = nil
   parser = OptionParser.new
-  parser.on("-e", "--email ADDRESS") { |v| email = v }
-  parser.on("-p", "--password PASSWORD") { |v| password = v }
-  parser.on("-l", "--limit N") { |v| limit = v.to_i }
-  parser.on("-V", "--verbose") { |v| verbose = true }
+  parser.on("-e", "--email ADDRESS", "email address to login mixi") { |v| email = v }
+  parser.on("-p", "--password PASSWORD", "password to login mixi") { |v| password = v }
+  parser.on("-l", "--limit NUMBER", "stop after sowing seeds of NUMBER carrot") { |v| limit = v.to_i }
+  parser.on("-v", "--verbose", "more info") { |v| verbose = true }
   begin
     parser.parse!(ARGV)
   rescue OptionParser::ParseError => e
@@ -90,7 +92,7 @@ def main
   end
   log_file = nil
   options = {
-    :wait => 1.0,
+    :wait => 1.1,
     :verbose => verbose, 
     :limit => limit,
   }

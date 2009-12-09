@@ -29,6 +29,7 @@ require "logger"
 require "openssl"
 require "base64"
 require "pp"
+require 'kconv'
 
 require "rubygems"
 require "mechanize"
@@ -253,6 +254,7 @@ class MxFarm
     # @agent = WWW::Mechanize.new { |a| a.user_agent = MY_USER_AGENT }
     @http = Net::HTTP.new("mxfarm.rekoo.com")
     @friend_list = {}
+    @ms = (RUBY_PLATFORM.downcase =~ /mswin(?!ce)|mingw|cygwin|bccwin/) ? true : false
   end
 
   def login(mixi, friend_ids)
@@ -317,7 +319,8 @@ class MxFarm
   def friend_name(friend_id)
     friend = get_friends[friend_id]
     name = friend ? friend[:name] : "?"
-    "%s(%d)" % [name, friend_id]
+    name = "%s(%d)" % [name, friend_id]
+    @ms ? name.tosjis : name
   end
 
   def pesters_name(land)
@@ -595,6 +598,7 @@ class MxFarm
   end
 
   def treat_friend_farm(friend_id)
+    params = Hash[@options]
     json = get_scene("farm", friend_id)
     farm = json["crops"]["main"].delete_if { |k, v| v.nil? }
     farm.each do |index, land|
@@ -605,7 +609,8 @@ class MxFarm
       end
     end
     farm.each do |index, land|
-      next if @no_more_pest
+      next unless params[:pest]
+      next if @no_more_pest 
       next if land["pester"].include?(@my_id) && land["pest"] >= 3
       # seed sprout leaflet leaf bloom fruit dead
       case land["state"]
@@ -622,6 +627,7 @@ class MxFarm
       if json["return_code"] == 4
         @no_more_pest = true
       end
+      break if (params[:pest]-=1) == 0
     end
     farm.each do |index, land|
       next unless land["water"] == -1 
@@ -629,16 +635,19 @@ class MxFarm
       call_api("land.friend.water", :friend_id => friend_id, :land_index => index)
     end
     farm.each do |index, land|
+      next unless params[:steal]
       next unless land["state"] == "fruit"
       next if land["total_fruit"].to_i <= 25
       next if land["stealer"].include?(@my_id)
       next if land["caught_stealer"].include?(@my_id)
       @log.info "[land.friend.steal] mixi: %s, land_id: %d, crop_type: %s" % [friend_name(friend_id), index, land["crop_type"]]
       call_api("land.friend.steal", :friend_id => friend_id, :land_index => index, :type => "no", :naruto => naruto)
+      break if (params[:steal]-=1) == 0 
     end
   end
 
   def treat_friend_ranch(friend_id)
+    params = Hash[@options]
     json = get_scene("ranch", friend_id)
     ranch = json["animals"]["main"].delete_if { |k, v| v.nil? }
     ranch.each do |index, fold|
@@ -648,6 +657,7 @@ class MxFarm
       call_api("fold.friend.cure", :friend_id => friend_id, :land_index => index)
     end
     ranch.each do |index, fold|
+      next unless params[:scare]
       next if @no_more_scare
       next if fold["scarer"].include?(@my_id)
       # baby young adult fruit dead
@@ -665,12 +675,14 @@ class MxFarm
       if result["return_code"] == 2
         @no_more_scare = true
       end
+      break if (params[:scare]-=1) == 0 
     end
     if json["sink"]["state"] == 1
       @log.info "[fold.friend.water] mixi: %s" % friend_name(friend_id)
       call_api("fold.friend.water", :friend_id => friend_id)
     end
     ranch.each do |index, fold|
+      next unless params[:steal]
       next if fold["harvest_type"] == 3
       next if fold["stealer"].include?(@my_id)
       next if fold["caught_stealer"].include?(@my_id)
@@ -683,6 +695,7 @@ class MxFarm
       end
       @log.info "[fold.friend.steal] mixi: %s, fold_id: %d, animal_type: %s" % [friend_name(friend_id), index, fold["animal_type"]]
       result = call_api("fold.friend.steal", :friend_id => friend_id, :land_index => index, :type => "no", :naruto => naruto)
+      break if (params[:steal]-=1) == 0 
     end
   end
 
