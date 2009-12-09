@@ -484,7 +484,7 @@ class MxFarm
         max_level = v[:level_need]
       end
       return unless name
-      store_buy(:scene_type => "farm", :category => "baby", :name => name, :num => 1)
+      store_buy(:scene_type => "ranch", :category => "baby", :name => name, :num => 1)
     end
     @log.info "[fold.breed] animal_type: %s" % name
     return call_api("fold.breed", :type => name, :num => 1)
