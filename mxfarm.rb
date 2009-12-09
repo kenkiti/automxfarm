@@ -251,6 +251,7 @@ class MxFarm
     ## Use net/http instead of mechanize for speeding up
     # @agent = WWW::Mechanize.new { |a| a.user_agent = MY_USER_AGENT }
     @http = Net::HTTP.new("mxfarm.rekoo.com")
+    @friend_list = {}
   end
 
   def login(mixi, friend_ids)
@@ -262,13 +263,13 @@ class MxFarm
   end
 
   def get_friends(type = "farm")
+    return @friend_list unless @friend_list.empty?
     json = call_api("user.get_friends", {
       :scene_type => type,
       :uid => @my_id,
       :store => "false",
       :config => "false",
     })
-    @friend_list = {}
     json["data"].each do |friend|
       @friend_list[friend["uid"]] = {
         :name => friend["name"],
@@ -311,7 +312,7 @@ class MxFarm
   end
 
   def friend_name(friend_id)
-    friend = @friend_list[friend_id]
+    friend = get_friends[friend_id]
     name = friend ? friend[:name] : "?"
     "%s(%d)" % [name, friend_id]
   end
@@ -688,7 +689,7 @@ if $0 == __FILE__
   verbose = false
   options = {
     :promotant => false,
-    :wait => 1.1,
+    :wait => 2.0,
   }
   ARGV.options do |opt|
     opt.on("-e", "--email ADDRESS", "email address to login mixi") { |v| email = v }
